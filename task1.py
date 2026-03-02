@@ -77,6 +77,15 @@ class Record:
         bday_str: str = self.birthday.value if self.birthday else "—"
         return f"Contact name: {self.name.value}, phones: {phones_str}, birthday: {bday_str}"
 
+from datetime import date
+
+def _birthday_in_year(bday: date, year: int) -> date:
+    """Повертає день народження в заданому році (29.02 -> 28.02 у невисокосний рік)."""
+    try:
+        return bday.replace(year=year)
+    except ValueError:
+        # Виникає, коли bday == 29.02, а рік не високосний
+        return date(year, 2, 28)
 
 class AddressBook(UserDict):
     """Адресна книга: зберігає записи (Record) та керує ними."""
