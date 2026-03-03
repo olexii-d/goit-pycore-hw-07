@@ -11,7 +11,7 @@ from typing import Any, Callable, Dict, List, Optional, Tuple
 
 class Field:
     """Базове поле запису."""
-    def __init__(self, value: str):
+    def __init__(self, value: str) -> None:
         self.value: str = value
 
     def __str__(self) -> str:
@@ -25,7 +25,7 @@ class Name(Field):
 
 class Phone(Field):
     """Телефон (рівно 10 цифр)."""
-    def __init__(self, value: str):
+    def __init__(self, value: str) -> None:
         if not (value.isdigit() and len(value) == 10):
             raise ValueError("Phone number must contain exactly 10 digits.")
         super().__init__(value)
@@ -33,7 +33,7 @@ class Phone(Field):
 
 class Birthday(Field):
     """День народження у форматі DD.MM.YYYY."""
-    def __init__(self, value: str):
+    def __init__(self, value: str) -> None:
         try:
             self.date_value: date = datetime.strptime(value, "%d.%m.%Y").date()
         except ValueError:
@@ -43,12 +43,15 @@ class Birthday(Field):
 
 class Record:
     """Запис контакту: ім'я, телефони, (опційно) день народження."""
-    def __init__(self, name: str):
+    def __init__(self, name: str) -> None:
         self.name: Name = Name(name)
         self.phones: List[Phone] = []
         self.birthday: Optional[Birthday] = None
 
     def add_phone(self, phone: str) -> None:
+        # не додаємо дублікати
+        if self.find_phone(phone) is not None:
+            return
         self.phones.append(Phone(phone))
 
     def find_phone(self, phone: str) -> Optional[Phone]:
@@ -67,7 +70,8 @@ class Record:
         p = self.find_phone(old_phone)
         if p is None:
             raise KeyError("Phone not found.")
-        p.value = Phone(new_phone).value  # валідація нового номера
+        # валідація нового номера
+        p.value = Phone(new_phone).value
 
     def add_birthday(self, birthday: str) -> None:
         self.birthday = Birthday(birthday)
@@ -77,15 +81,23 @@ class Record:
         bday_str: str = self.birthday.value if self.birthday else "—"
         return f"Contact name: {self.name.value}, phones: {phones_str}, birthday: {bday_str}"
 
-from datetime import date
 
 def _birthday_in_year(bday: date, year: int) -> date:
-    """Повертає день народження в заданому році (29.02 -> 28.02 у невисокосний рік)."""
+    """Повертає ДН в заданому році (29.02 -> 28.02 у невисокосний рік)."""
     try:
         return bday.replace(year=year)
     except ValueError:
-        # Виникає, коли bday == 29.02, а рік не високосний
         return date(year, 2, 28)
+
+
+def _shift_if_weekend(d: date) -> date:
+    """Якщо дата припадає на вихідні — переносимо на понеділок."""
+    if d.weekday() == 5:   # субота
+        return d + timedelta(days=2)
+    if d.weekday() == 6:   # неділя
+        return d + timedelta(days=1)
+    return d
+
 
 class AddressBook(UserDict):
     """Адресна книга: зберігає записи (Record) та керує ними."""
@@ -106,7 +118,7 @@ class AddressBook(UserDict):
         """
         Повертає список привітань на наступні 7 днів.
         Якщо ДН у суботу/неділю — переносимо привітання на понеділок.
-        Формат елементів: {"name": "...", "congratulation_date": "YYYY-MM-DD"}
+        Формат елементів: {"name": "...", "congratulation_date": "DD.MM.YYYY"}
         """
         today: date = date.today()
         end_date: date = today + timedelta(days=7)
@@ -117,22 +129,20 @@ class AddressBook(UserDict):
                 continue
 
             bday: date = record.birthday.date_value
-            bday_this_year: date = bday.replace(year=today.year)
-            if bday_this_year < today:
-                bday_this_year = bday_this_year.replace(year=today.year + 1)
 
-            if today <= bday_this_year <= end_date:
-                congrats: date = bday_this_year
-                if congrats.weekday() == 5:      # субота
-                    congrats += timedelta(days=2)
-                elif congrats.weekday() == 6:    # неділя
-                    congrats += timedelta(days=1)
+            bday_date: date = _birthday_in_year(bday, today.year)
+            congrats: date = _shift_if_weekend(bday_date)
 
+            if congrats < today:
+                bday_date = _birthday_in_year(bday, today.year + 1)
+                congrats = _shift_if_weekend(bday_date)
+
+            if today <= congrats <= end_date:
                 result.append(
-                    {"name": record.name.value, "congratulation_date": congrats.isoformat()}
+                    {"name": record.name.value, "congratulation_date": congrats.strftime("%d.%m.%Y")}
                 )
 
-        result.sort(key=lambda x: x["congratulation_date"])
+        result.sort(key=lambda x: datetime.strptime(x["congratulation_date"], "%d.%m.%Y").date())
         return result
 
 
@@ -190,13 +200,12 @@ def add_contact(args: List[str], book: AddressBook) -> str:
 
     record: Optional[Record] = book.find(name)
     if record is None:
-        # Щоб не створити "порожній" контакт при невалідному телефоні — валідую до додавання в book
         new_record = Record(name)
         new_record.add_phone(phone)  # може кинути ValueError
         book.add_record(new_record)
         return "Contact added."
 
-    record.add_phone(phone)          # може кинути ValueError
+    record.add_phone(phone)  # може кинути ValueError
     return "Contact updated."
 
 
@@ -211,7 +220,7 @@ def change_contact(args: List[str], book: AddressBook) -> str:
     if record is None:
         raise KeyError("Contact not found.")
 
-    record.edit_phone(old_phone, new_phone)  # може кинути KeyError("Phone not found.")
+    record.edit_phone(old_phone, new_phone)
     return "Contact updated."
 
 
@@ -245,7 +254,7 @@ def add_birthday(args: List[str], book: AddressBook) -> str:
     if record is None:
         raise KeyError("Contact not found.")
 
-    record.add_birthday(bday)  # може кинути ValueError
+    record.add_birthday(bday)
     return "Birthday added."
 
 
